@@ -1,4 +1,4 @@
-import { App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting, moment, TFile } from 'obsidian';
+import { App, Editor, Notice, Plugin, PluginSettingTab, Setting, moment } from 'obsidian';
 
 interface ImageUploaderSettings {
     apiUrl: string;
@@ -71,7 +71,7 @@ export default class ImageUploaderPlugin extends Plugin {
         try {
             const formData = new FormData();
             let fileName = file.name;
-            
+
             if (this.settings.appendSuffix) {
                 const suffix = moment().format(this.settings.suffixFormat);
                 const nameParts = fileName.split('.');
@@ -82,7 +82,7 @@ export default class ImageUploaderPlugin extends Plugin {
                     fileName = `${fileName}${suffix}`;
                 }
             }
-            
+
             formData.append('file', file, fileName);
 
             const response = await fetch(this.settings.apiUrl, {
@@ -117,10 +117,10 @@ class ImageUploaderSettingTab extends PluginSettingTab {
     }
 
     display(): void {
-        const {containerEl} = this;
+        const { containerEl } = this;
 
         containerEl.empty();
-        containerEl.createEl('h2', {text: 'Image Uploader Settings'});
+        containerEl.createEl('h2', { text: 'Image Uploader Settings' });
 
         new Setting(containerEl)
             .setName('API URL')
