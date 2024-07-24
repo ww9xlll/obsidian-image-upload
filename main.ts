@@ -1,4 +1,4 @@
-import { App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting, moment } from 'obsidian';
+import { App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting, moment, TFile } from 'obsidian';
 
 interface ImageUploaderSettings {
     apiUrl: string;
@@ -11,7 +11,7 @@ const DEFAULT_SETTINGS: ImageUploaderSettings = {
     apiUrl: 'https://api.example.com/upload',
     apiToken: '',
     appendSuffix: false,
-    suffixFormat: '-HHmmss'
+    suffixFormat: '-YYYYMMDDHHmmss'
 }
 
 export default class ImageUploaderPlugin extends Plugin {
@@ -27,6 +27,12 @@ export default class ImageUploaderPlugin extends Plugin {
                 this.handlePaste(evt, editor);
             })
         );
+
+        this.registerEvent(
+            this.app.workspace.on('editor-drop', (evt: DragEvent, editor: Editor) => {
+                this.handleDrop(evt, editor);
+            })
+        );
     }
 
     async loadSettings() {
@@ -39,10 +45,24 @@ export default class ImageUploaderPlugin extends Plugin {
 
     async handlePaste(evt: ClipboardEvent, editor: Editor) {
         const files = evt.clipboardData?.files;
-        if (files && files.length > 0 && files[0].type.startsWith('image')) {
+        if (files && files.length > 0) {
             evt.preventDefault();
             for (let i = 0; i < files.length; i++) {
-                await this.uploadAndInsertImage(files[i], editor);
+                if (files[i].type.startsWith('image')) {
+                    await this.uploadAndInsertImage(files[i], editor);
+                }
+            }
+        }
+    }
+
+    async handleDrop(evt: DragEvent, editor: Editor) {
+        const files = evt.dataTransfer?.files;
+        if (files && files.length > 0) {
+            evt.preventDefault();
+            for (let i = 0; i < files.length; i++) {
+                if (files[i].type.startsWith('image')) {
+                    await this.uploadAndInsertImage(files[i], editor);
+                }
             }
         }
     }
@@ -59,7 +79,7 @@ export default class ImageUploaderPlugin extends Plugin {
                     const extension = nameParts.pop();
                     fileName = `${nameParts.join('.')}${suffix}.${extension}`;
                 } else {
-                    fileName = `${fileName}_${suffix}`;
+                    fileName = `${fileName}${suffix}`;
                 }
             }
             
@@ -80,7 +100,7 @@ export default class ImageUploaderPlugin extends Plugin {
             const data = await response.json();
             const imageUrl = data.url; // 假设API返回的JSON中包含图片URL
 
-            editor.replaceSelection(`![](${imageUrl})`);
+            editor.replaceSelection(`![${fileName}](${imageUrl})`);
         } catch (error) {
             console.error('Error uploading image:', error);
             new Notice('Failed to upload image');
