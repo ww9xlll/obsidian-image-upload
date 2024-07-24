@@ -1,134 +1,148 @@
-import { App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting } from 'obsidian';
+import { App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting, moment } from 'obsidian';
 
-// Remember to rename these classes and interfaces!
-
-interface MyPluginSettings {
-	mySetting: string;
+interface ImageUploaderSettings {
+    apiUrl: string;
+    apiToken: string;
+    appendSuffix: boolean;
+    suffixFormat: string;
 }
 
-const DEFAULT_SETTINGS: MyPluginSettings = {
-	mySetting: 'default'
+const DEFAULT_SETTINGS: ImageUploaderSettings = {
+    apiUrl: 'https://api.example.com/upload',
+    apiToken: '',
+    appendSuffix: false,
+    suffixFormat: '-HHmmss'
 }
 
-export default class MyPlugin extends Plugin {
-	settings: MyPluginSettings;
+export default class ImageUploaderPlugin extends Plugin {
+    settings: ImageUploaderSettings;
 
-	async onload() {
-		await this.loadSettings();
+    async onload() {
+        await this.loadSettings();
 
-		// This creates an icon in the left ribbon.
-		const ribbonIconEl = this.addRibbonIcon('dice', 'Sample Plugin', (evt: MouseEvent) => {
-			// Called when the user clicks the icon.
-			new Notice('This is a notice!');
-		});
-		// Perform additional things with the ribbon
-		ribbonIconEl.addClass('my-plugin-ribbon-class');
+        this.addSettingTab(new ImageUploaderSettingTab(this.app, this));
 
-		// This adds a status bar item to the bottom of the app. Does not work on mobile apps.
-		const statusBarItemEl = this.addStatusBarItem();
-		statusBarItemEl.setText('Status Bar Text');
+        this.registerEvent(
+            this.app.workspace.on('editor-paste', (evt: ClipboardEvent, editor: Editor) => {
+                this.handlePaste(evt, editor);
+            })
+        );
+    }
 
-		// This adds a simple command that can be triggered anywhere
-		this.addCommand({
-			id: 'open-sample-modal-simple',
-			name: 'Open sample modal (simple)',
-			callback: () => {
-				new SampleModal(this.app).open();
-			}
-		});
-		// This adds an editor command that can perform some operation on the current editor instance
-		this.addCommand({
-			id: 'sample-editor-command',
-			name: 'Sample editor command',
-			editorCallback: (editor: Editor, view: MarkdownView) => {
-				console.log(editor.getSelection());
-				editor.replaceSelection('Sample Editor Command');
-			}
-		});
-		// This adds a complex command that can check whether the current state of the app allows execution of the command
-		this.addCommand({
-			id: 'open-sample-modal-complex',
-			name: 'Open sample modal (complex)',
-			checkCallback: (checking: boolean) => {
-				// Conditions to check
-				const markdownView = this.app.workspace.getActiveViewOfType(MarkdownView);
-				if (markdownView) {
-					// If checking is true, we're simply "checking" if the command can be run.
-					// If checking is false, then we want to actually perform the operation.
-					if (!checking) {
-						new SampleModal(this.app).open();
-					}
+    async loadSettings() {
+        this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    }
 
-					// This command will only show up in Command Palette when the check function returns true
-					return true;
-				}
-			}
-		});
+    async saveSettings() {
+        await this.saveData(this.settings);
+    }
 
-		// This adds a settings tab so the user can configure various aspects of the plugin
-		this.addSettingTab(new SampleSettingTab(this.app, this));
+    async handlePaste(evt: ClipboardEvent, editor: Editor) {
+        const files = evt.clipboardData?.files;
+        if (files && files.length > 0 && files[0].type.startsWith('image')) {
+            evt.preventDefault();
+            for (let i = 0; i < files.length; i++) {
+                await this.uploadAndInsertImage(files[i], editor);
+            }
+        }
+    }
 
-		// If the plugin hooks up any global DOM events (on parts of the app that doesn't belong to this plugin)
-		// Using this function will automatically remove the event listener when this plugin is disabled.
-		this.registerDomEvent(document, 'click', (evt: MouseEvent) => {
-			console.log('click', evt);
-		});
+    async uploadAndInsertImage(file: File, editor: Editor) {
+        try {
+            const formData = new FormData();
+            let fileName = file.name;
+            
+            if (this.settings.appendSuffix) {
+                const suffix = moment().format(this.settings.suffixFormat);
+                const nameParts = fileName.split('.');
+                if (nameParts.length > 1) {
+                    const extension = nameParts.pop();
+                    fileName = `${nameParts.join('.')}${suffix}.${extension}`;
+                } else {
+                    fileName = `${fileName}_${suffix}`;
+                }
+            }
+            
+            formData.append('file', file, fileName);
 
-		// When registering intervals, this function will automatically clear the interval when the plugin is disabled.
-		this.registerInterval(window.setInterval(() => console.log('setInterval'), 5 * 60 * 1000));
-	}
+            const response = await fetch(this.settings.apiUrl, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${this.settings.apiToken}`
+                },
+                body: formData
+            });
 
-	onunload() {
+            if (!response.ok) {
+                throw new Error('Upload failed');
+            }
 
-	}
+            const data = await response.json();
+            const imageUrl = data.url; // 假设API返回的JSON中包含图片URL
 
-	async loadSettings() {
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
-	}
-
-	async saveSettings() {
-		await this.saveData(this.settings);
-	}
+            editor.replaceSelection(`![](${imageUrl})`);
+        } catch (error) {
+            console.error('Error uploading image:', error);
+            new Notice('Failed to upload image');
+        }
+    }
 }
 
-class SampleModal extends Modal {
-	constructor(app: App) {
-		super(app);
-	}
+class ImageUploaderSettingTab extends PluginSettingTab {
+    plugin: ImageUploaderPlugin;
 
-	onOpen() {
-		const {contentEl} = this;
-		contentEl.setText('Woah!');
-	}
+    constructor(app: App, plugin: ImageUploaderPlugin) {
+        super(app, plugin);
+        this.plugin = plugin;
+    }
 
-	onClose() {
-		const {contentEl} = this;
-		contentEl.empty();
-	}
-}
+    display(): void {
+        const {containerEl} = this;
 
-class SampleSettingTab extends PluginSettingTab {
-	plugin: MyPlugin;
+        containerEl.empty();
+        containerEl.createEl('h2', {text: 'Image Uploader Settings'});
 
-	constructor(app: App, plugin: MyPlugin) {
-		super(app, plugin);
-		this.plugin = plugin;
-	}
+        new Setting(containerEl)
+            .setName('API URL')
+            .setDesc('Enter the URL of your image upload API')
+            .addText(text => text
+                .setPlaceholder('Enter API URL')
+                .setValue(this.plugin.settings.apiUrl)
+                .onChange(async (value) => {
+                    this.plugin.settings.apiUrl = value;
+                    await this.plugin.saveSettings();
+                }));
 
-	display(): void {
-		const {containerEl} = this;
+        new Setting(containerEl)
+            .setName('API Token')
+            .setDesc('Enter your API authentication token')
+            .addText(text => text
+                .setPlaceholder('Enter API token')
+                .setValue(this.plugin.settings.apiToken)
+                .onChange(async (value) => {
+                    this.plugin.settings.apiToken = value;
+                    await this.plugin.saveSettings();
+                }));
 
-		containerEl.empty();
+        new Setting(containerEl)
+            .setName('Append Suffix to Filename')
+            .setDesc('Enable to append a custom suffix to the uploaded image filename')
+            .addToggle(toggle => toggle
+                .setValue(this.plugin.settings.appendSuffix)
+                .onChange(async (value) => {
+                    this.plugin.settings.appendSuffix = value;
+                    await this.plugin.saveSettings();
+                }));
 
-		new Setting(containerEl)
-			.setName('Setting #1')
-			.setDesc('It\'s a secret')
-			.addText(text => text
-				.setPlaceholder('Enter your secret')
-				.setValue(this.plugin.settings.mySetting)
-				.onChange(async (value) => {
-					this.plugin.settings.mySetting = value;
-					await this.plugin.saveSettings();
-				}));
-	}
+        new Setting(containerEl)
+            .setName('Suffix Format')
+            .setDesc('Enter the format for the filename suffix (e.g., YYYYMMDDHHmmss)')
+            .addText(text => text
+                .setPlaceholder('Enter suffix format')
+                .setValue(this.plugin.settings.suffixFormat)
+                .onChange(async (value) => {
+                    this.plugin.settings.suffixFormat = value;
+                    await this.plugin.saveSettings();
+                }));
+    }
 }
