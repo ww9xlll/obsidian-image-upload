@@ -1,17 +1,21 @@
-import { App, Editor, Notice, Plugin, PluginSettingTab, Setting, moment } from 'obsidian';
+import { App, Editor, Notice, Plugin, PluginSettingTab, Setting, moment, MarkdownPreviewRenderer } from 'obsidian';
 
 interface ImageUploaderSettings {
     apiUrl: string;
     apiToken: string;
     appendSuffix: boolean;
     suffixFormat: string;
+    accessToken: string;
+    customImageDomain: string;
 }
 
 const DEFAULT_SETTINGS: ImageUploaderSettings = {
     apiUrl: 'https://api.example.com/upload',
     apiToken: '',
     appendSuffix: false,
-    suffixFormat: '-YYYYMMDDHHmmss'
+    suffixFormat: '-YYYYMMDDHHmmss',
+    accessToken: '',
+    customImageDomain: 'https://example.com/read',
 }
 
 export default class ImageUploaderPlugin extends Plugin {
@@ -33,6 +37,31 @@ export default class ImageUploaderPlugin extends Plugin {
                 this.handleDrop(evt, editor);
             })
         );
+
+        // TODO not working on editing mode
+        MarkdownPreviewRenderer.registerPostProcessor(this.processImages.bind(this));
+    }
+
+    processImages(el: HTMLElement) {
+        const imgs = el.querySelectorAll('img');
+        imgs.forEach((img) => {
+            if (this.shouldProcessImage(img.src)) {
+                const originalSrc = img.getAttribute('src') || '';
+                img.src = this.addTokenToUrl(originalSrc);
+            }
+        });
+    }
+
+    shouldProcessImage(src: string): boolean {
+        return this.settings.customImageDomain !== null &&
+            this.settings.customImageDomain.trim() !== '' &&
+            src.startsWith(this.settings.customImageDomain);
+    }
+
+    addTokenToUrl(src: string): string {
+        const url = new URL(src);
+        url.searchParams.append('token', this.settings.accessToken);
+        return url.toString();
     }
 
     async loadSettings() {
@@ -162,6 +191,28 @@ class ImageUploaderSettingTab extends PluginSettingTab {
                 .setValue(this.plugin.settings.suffixFormat)
                 .onChange(async (value) => {
                     this.plugin.settings.suffixFormat = value;
+                    await this.plugin.saveSettings();
+                }));
+
+        new Setting(containerEl)
+            .setName('AccessToken')
+            .setDesc('Enter your access token')
+            .addText(text => text
+                .setPlaceholder('Enter your access token')
+                .setValue(this.plugin.settings.accessToken)
+                .onChange(async (value) => {
+                    this.plugin.settings.accessToken = value;
+                    await this.plugin.saveSettings();
+                }));
+
+        new Setting(containerEl)
+            .setName('Custom Image Domain')
+            .setDesc('Enter the domain for your custom images (e.g., https://example.com/read)')
+            .addText(text => text
+                .setPlaceholder('https://example.com/read')
+                .setValue(this.plugin.settings.customImageDomain)
+                .onChange(async (value) => {
+                    this.plugin.settings.customImageDomain = value;
                     await this.plugin.saveSettings();
                 }));
     }
